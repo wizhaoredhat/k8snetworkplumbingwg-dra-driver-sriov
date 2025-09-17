@@ -3,8 +3,6 @@
 package e2e_test
 
 import (
-	"strings"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -55,9 +53,6 @@ var _ = Describe("demo/multus-integration-resource-alignment", Label(framework.L
 		clients.ExpectResourceClaimRequestsSharePCIeRoot(ctx, ns, claimName, vfDeviceRequest, gpuDeviceRequest)
 
 		By("checking secondary network interface from Multus")
-		out, err := clients.ExecInPod(ctx, ns, podName, container, "ip", "-o", "link", "show")
-		Expect(err).NotTo(HaveOccurred())
-		linkLines := strings.Split(strings.TrimSpace(out), "\n")
-		Expect(len(linkLines)).To(BeNumerically(">=", 3), "expected lo, eth0, and VF interface:\n%s", out)
+		clients.ExpectPodLinkInterfaces(ctx, ns, podName, container, "lo", "eth0", "net1")
 	})
 })
