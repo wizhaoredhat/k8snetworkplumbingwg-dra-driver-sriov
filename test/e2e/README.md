@@ -9,6 +9,8 @@ Go + Ginkgo suite that validates DRA SR-IOV advertising and applies YAML under
 |-------|------|
 | `make deploy-single-node-virtual-cluster-standalone` | Cluster, STANDALONE driver install, host VF creation, driver restart. Does **not** apply `SriovResourcePolicy` or wait for ResourceSlices. |
 | `make deploy-single-node-virtual-cluster-multus` | Same as above with `DRA_DRIVER_MODE=MULTUS` (requires Multus CNI on the cluster for Multus demos). |
+| `make deploy-multi-node-virtual-cluster-standalone` | 1 control plane + 2 workers (default `NUM_OF_WORKERS`), STANDALONE driver, SR-IOV on workers only. |
+| `make deploy-multi-node-virtual-cluster-multus` | Same as above with `DRA_DRIVER_MODE=MULTUS`. |
 | `smoke/advertise-devices` | Catch-all `all-devices` policy => ResourceSlices publish devices; cleans up afterward. |
 | `demo_*_test.go` | Each demo fixture applies (and cleans up) its own policies / workloads. |
 
@@ -28,9 +30,13 @@ export KUBECONFIG="${KUBECONFIG:-$HOME/.kcli/clusters/dra/auth/kubeconfig}"
 make e2e-workloads
 ```
 
-CI (`.github/workflows/virtual-e2e.yaml`) runs this suite in a matrix for both
-`standalone` and `multus` driver modes. Mode-specific demos auto-skip based on
-cluster detection (`SkipUnlessMultus` / `SkipUnlessStandalone`).
+CI runs this suite in a matrix for both `standalone` and `multus` driver modes:
+
+- `.github/workflows/virtual-e2e-singlenode.yaml` — single-node cluster (`--single-node`)
+- `.github/workflows/virtual-e2e-multinode.yaml` — multi-node cluster (1 control plane + 2 workers)
+
+Mode-specific demos auto-skip based on cluster detection (`SkipUnlessMultus` /
+`SkipUnlessStandalone`).
 
 Filter by Ginkgo labels locally:
 

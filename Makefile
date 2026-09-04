@@ -247,16 +247,23 @@ deploy-virtual-k8s-cluster:
 
 .PHONY: deploy-single-node-virtual-cluster-standalone
 deploy-single-node-virtual-cluster-standalone:
-	DRA_DRIVER_MODE=STANDALONE ./hack/ci-deploy-single-node-virtual-cluster.sh
+	DRA_DRIVER_MODE=STANDALONE ./hack/deploy-virtual-k8s-cluster.sh --single-node
 
 .PHONY: deploy-single-node-virtual-cluster-multus
 deploy-single-node-virtual-cluster-multus:
-	DRA_DRIVER_MODE=MULTUS ./hack/ci-deploy-single-node-virtual-cluster.sh
+	DRA_DRIVER_MODE=MULTUS ./hack/deploy-virtual-k8s-cluster.sh --single-node
+
+.PHONY: deploy-multi-node-virtual-cluster-standalone
+deploy-multi-node-virtual-cluster-standalone:
+	DRA_DRIVER_MODE=STANDALONE ./hack/deploy-virtual-k8s-cluster.sh
+
+.PHONY: deploy-multi-node-virtual-cluster-multus
+deploy-multi-node-virtual-cluster-multus:
+	DRA_DRIVER_MODE=MULTUS ./hack/deploy-virtual-k8s-cluster.sh
 
 .PHONY: delete-virtual-k8s-cluster
 delete-virtual-k8s-cluster:
 	./hack/deploy-virtual-k8s-cluster.sh --cleanup
-	./hack/ci-deploy-single-node-virtual-cluster.sh --cleanup
 
 redeploy-dra-driver-virtual-cluster:
 	./hack/virtual-cluster-redeploy.sh
