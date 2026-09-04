@@ -5,7 +5,6 @@ import (
 	"os"
 	"strings"
 
-	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,13 +25,13 @@ const (
 // SkipUnlessMultus skips when Multus is not installed or the driver is not in MULTUS mode.
 func (c *Clients) SkipUnlessMultus(ctx context.Context) {
 	if os.Getenv("E2E_SKIP_MULTUS") == "1" {
-		Skip("E2E_SKIP_MULTUS=1")
+		skipTestf("E2E_SKIP_MULTUS=1")
 	}
 	if !c.hasMultus(ctx) {
-		Skip("Multus not detected in cluster")
+		skipTestf("Multus not detected in cluster")
 	}
 	if mode := c.detectDriverMode(ctx); mode != "" && mode != "MULTUS" {
-		Skip("driver configurationMode=" + mode + " (need MULTUS)")
+		skipTestf("driver configurationMode=%s (need MULTUS)", mode)
 	}
 }
 
@@ -41,14 +40,14 @@ func (c *Clients) SkipUnlessMultus(ctx context.Context) {
 // disabled and secondary interfaces only appear via Multus pod annotations.
 func (c *Clients) SkipUnlessStandalone(ctx context.Context) {
 	if mode := c.detectDriverMode(ctx); mode == "MULTUS" {
-		Skip("driver configurationMode=MULTUS (need STANDALONE / NRI)")
+		skipTestf("driver configurationMode=MULTUS (need STANDALONE / NRI)")
 	}
 }
 
 // SkipUnlessAlignment skips unless explicitly enabled (needs gpu.example.com).
 func (c *Clients) SkipUnlessAlignment(_ context.Context) {
 	if os.Getenv("E2E_ENABLE_ALIGNMENT") != "1" {
-		Skip("alignment e2e disabled by default; set E2E_ENABLE_ALIGNMENT=1 to run (requires gpu.example.com)")
+		skipTestf("alignment e2e disabled by default; set E2E_ENABLE_ALIGNMENT=1 to run (requires gpu.example.com)")
 	}
 }
 
@@ -59,7 +58,7 @@ func (c *Clients) SkipUnlessSriovCapableNode(ctx context.Context) {
 	})
 	Expect(err).NotTo(HaveOccurred())
 	if len(nodes.Items) == 0 {
-		Skip("no nodes with label " + SriovCapableNodeLabelKey + "=" + SriovCapableNodeLabelValue)
+		skipTestf("no nodes with label %s=%s", SriovCapableNodeLabelKey, SriovCapableNodeLabelValue)
 	}
 }
 
@@ -72,7 +71,7 @@ func (c *Clients) SkipIfNodeMissing(ctx context.Context, wantNode string) {
 			return
 		}
 	}
-	Skip("node " + wantNode + " not found")
+	skipTestf("node %s not found", wantNode)
 }
 
 func (c *Clients) hasMultus(ctx context.Context) bool {

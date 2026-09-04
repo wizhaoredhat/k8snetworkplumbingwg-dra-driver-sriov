@@ -16,6 +16,7 @@ import (
 
 func TestE2E(t *testing.T) {
 	RegisterFailHandler(Fail)
+	framework.SetSkipFunc(func(message string) { Skip(message) })
 	RunSpecs(t, "DRA driver SR-IOV workload e2e suite")
 }
 
