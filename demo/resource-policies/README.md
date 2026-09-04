@@ -13,7 +13,7 @@ This scenario demonstrates:
 
 ### 1. SriovResourcePolicy
 The `SriovResourcePolicy` resource defines which SR-IOV devices should be advertised as allocatable resources:
-- **nodeSelector**: Targets specific nodes (`dra-ctlplane-0.dra.lab` in this example)
+- **nodeSelector**: Targets SR-IOV-capable nodes (`feature.node.kubernetes.io/network-sriov.capable=true`)
 - **configs**: Defines multiple resource configurations:
   - `eth0_resource`: Filters devices connected to eth0 Physical Function
   - `eth1_resource`: Filters devices connected to eth1 Physical Function

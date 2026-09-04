@@ -36,7 +36,7 @@ CI runs this suite in a matrix for both `standalone` and `multus` driver modes:
 - `.github/workflows/virtual-e2e-multinode.yaml` — multi-node cluster (1 control plane + 2 workers)
 
 Mode-specific demos auto-skip based on cluster detection (`SkipUnlessMultus` /
-`SkipUnlessStandalone`).
+`SkipUnlessStandalone`). Alignment demos skip unless `E2E_ENABLE_ALIGNMENT=1`.
 
 Filter by Ginkgo labels locally:
 
@@ -52,7 +52,7 @@ make e2e-workloads E2E_LABEL_FILTER='!Multus && !Alignment'
 - Multus demos require Multus installed and the driver deployed with `DRA_DRIVER_MODE=MULTUS` / `kubeletPlugin.configurationMode=MULTUS`.
 - VFIO and extended-resource demos run by default on the single-node virtual cluster (IOMMU + VFIO modules from deploy; dual PF via `eth0`/`eth1`). Skip with `E2E_SKIP_VFIO=1` / `E2E_SKIP_EXTENDED_RESOURCE=1`.
 - Alignment demos are skipped unless explicitly enabled via `E2E_ENABLE_ALIGNMENT=1` (requires a `gpu.example.com` DRA publisher).
-- The resource-policies demo skips unless a node named `dra-ctlplane-0.dra.lab` exists.
+- The resource-policies demo skips unless at least one node has `feature.node.kubernetes.io/network-sriov.capable=true`.
 
 ## Layout
 

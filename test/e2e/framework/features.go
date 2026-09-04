@@ -18,6 +18,9 @@ const (
 	LabelExtendedResource = "ExtendedResource"
 	LabelAlignment        = "Alignment"
 	LabelResourcePolicy   = "ResourcePolicy"
+
+	SriovCapableNodeLabelKey   = "feature.node.kubernetes.io/network-sriov.capable"
+	SriovCapableNodeLabelValue = "true"
 )
 
 // SkipUnlessMultus skips when Multus is not installed or the driver is not in MULTUS mode.
@@ -46,6 +49,17 @@ func (c *Clients) SkipUnlessStandalone(ctx context.Context) {
 func (c *Clients) SkipUnlessAlignment(_ context.Context) {
 	if os.Getenv("E2E_ENABLE_ALIGNMENT") != "1" {
 		Skip("alignment e2e disabled by default; set E2E_ENABLE_ALIGNMENT=1 to run (requires gpu.example.com)")
+	}
+}
+
+// SkipUnlessSriovCapableNode skips when no node has the SR-IOV capable label.
+func (c *Clients) SkipUnlessSriovCapableNode(ctx context.Context) {
+	nodes, err := c.Clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{
+		LabelSelector: SriovCapableNodeLabelKey + "=" + SriovCapableNodeLabelValue,
+	})
+	Expect(err).NotTo(HaveOccurred())
+	if len(nodes.Items) == 0 {
+		Skip("no nodes with label " + SriovCapableNodeLabelKey + "=" + SriovCapableNodeLabelValue)
 	}
 }
 

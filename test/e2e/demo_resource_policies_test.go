@@ -35,7 +35,7 @@ var _ = Describe("demo/resource-policies", Label(framework.LabelResourcePolicy, 
 
 	It("applies resource policies and starts a filtered VF pod", func() {
 		clients.SkipUnlessStandalone(ctx)
-		clients.SkipIfNodeMissing(ctx, "dra-ctlplane-0.dra.lab")
+		clients.SkipUnlessSriovCapableNode(ctx)
 
 		path, err := framework.DemoPath("resource-policies", "resource-policy.yaml")
 		Expect(err).NotTo(HaveOccurred())

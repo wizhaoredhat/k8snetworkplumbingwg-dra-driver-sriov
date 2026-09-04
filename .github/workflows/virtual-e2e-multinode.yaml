@@ -42,9 +42,6 @@ jobs:
 
       - name: Run workload e2e tests
         uses: ./.github/actions/run-e2e-workloads
-        with:
-          # resource-policies targets dra-ctlplane-0, which has no SR-IOV on multi-node.
-          e2e-label-filter: "!ResourcePolicy && !Alignment"
 
       - name: Collect logs on failure
         if: failure()
