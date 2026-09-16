@@ -2,13 +2,13 @@ package framework
 
 import (
 	"context"
-	"os"
 	"strings"
 
 	. "github.com/onsi/gomega"
 
+	resourceapi "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/dynamic-resource-allocation/deviceattribute"
 )
 
 const (
@@ -23,14 +23,10 @@ const (
 	SriovCapableNodeLabelValue = "true"
 
 	AlignmentGPUDriverName = "gpu.example.com"
-	PCIeRootAttributeKey   = "resource.kubernetes.io/pcieRoot"
 )
 
 // SkipUnlessMultus skips when Multus is not installed or the driver is not in MULTUS mode.
 func (c *Clients) SkipUnlessMultus(ctx context.Context) {
-	if os.Getenv("E2E_SKIP_MULTUS") == "1" {
-		skipTestf("E2E_SKIP_MULTUS=1")
-	}
 	if !c.hasMultus(ctx) {
 		skipTestf("Multus not detected in cluster")
 	}
@@ -49,12 +45,12 @@ func (c *Clients) SkipUnlessStandalone(ctx context.Context) {
 }
 
 // SkipUnlessAlignment skips when the cluster has no gpu.example.com ResourceSlice with
-// resource.kubernetes.io/pcieRoot. Call SkipUnlessStandalone or SkipUnlessMultus when the
+// deviceattribute.StandardDeviceAttributePCIeRoot. Call SkipUnlessStandalone or SkipUnlessMultus when the
 // fixture depends on driver mode.
 func (c *Clients) SkipUnlessAlignment(ctx context.Context) {
-	if !c.hasResourceSliceDeviceAttribute(ctx, AlignmentGPUDriverName, PCIeRootAttributeKey) {
+	if !c.hasResourceSliceDeviceAttribute(ctx, AlignmentGPUDriverName, deviceattribute.StandardDeviceAttributePCIeRoot) {
 		skipTestf("no %s ResourceSlice device with %s (run make install-fake-gpu-driver or DEPLOY_FAKE_GPU_DRIVER=1)",
-			AlignmentGPUDriverName, PCIeRootAttributeKey)
+			AlignmentGPUDriverName, deviceattribute.StandardDeviceAttributePCIeRoot)
 	}
 }
 
@@ -129,27 +125,19 @@ func (c *Clients) detectDriverMode(ctx context.Context) string {
 	return "STANDALONE"
 }
 
-func (c *Clients) hasResourceSliceDeviceAttribute(ctx context.Context, driver, attrKey string) bool {
-	list, err := c.Dynamic.Resource(schemaGroupVersionResource("resourceslices")).List(ctx, metav1.ListOptions{})
+// hasResourceSliceDeviceAttribute reports whether any device on a ResourceSlice for driver
+// has a non-empty string value for attrKey.
+func (c *Clients) hasResourceSliceDeviceAttribute(ctx context.Context, driver string, attrKey resourceapi.QualifiedName) bool {
+	list, err := c.Clientset.ResourceV1().ResourceSlices().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return false
 	}
-	for _, item := range list.Items {
-		sliceDriver, _, err := unstructured.NestedString(item.Object, "spec", "driver")
-		if err != nil || sliceDriver != driver {
+	for _, slice := range list.Items {
+		if slice.Spec.Driver != driver {
 			continue
 		}
-		devices, ok, err := unstructured.NestedSlice(item.Object, "spec", "devices")
-		if err != nil || !ok {
-			continue
-		}
-		for _, raw := range devices {
-			device, ok := raw.(map[string]any)
-			if !ok {
-				continue
-			}
-			val, ok, err := unstructured.NestedString(device, "attributes", attrKey, "string")
-			if err == nil && ok && val != "" {
+		for _, device := range slice.Spec.Devices {
+			if _, ok := deviceAttributeString(device.Attributes, attrKey); ok {
 				return true
 			}
 		}

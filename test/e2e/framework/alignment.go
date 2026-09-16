@@ -8,7 +8,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/dynamic-resource-allocation/deviceattribute"
 )
 
 // ResourceClaimNameForPodClaim returns the generated ResourceClaim name for a pod resource claim ref.
@@ -32,29 +32,23 @@ func (c *Clients) ExpectResourceClaimRequestsSharePCIeRoot(ctx context.Context, 
 		want[name] = struct{}{}
 	}
 
-	results, found, err := unstructured.NestedSlice(claim.Object, "status", "allocation", "devices", "results")
-	Expect(err).NotTo(HaveOccurred())
-	Expect(found).To(BeTrue(), "claim %s/%s has no allocation device results", namespace, claimName)
+	allocation := claim.Status.Allocation
+	Expect(allocation).NotTo(BeNil(), "claim %s/%s has no status.allocation", namespace, claimName)
+	results := allocation.Devices.Results
+	Expect(results).NotTo(BeEmpty(), "claim %s/%s has no allocation device results", namespace, claimName)
 
 	rootsByRequest := make(map[string]string, len(requestNames))
-	for _, raw := range results {
-		res, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		request, _ := res["request"].(string)
+	for _, res := range results {
+		request := res.Request
 		if _, ok := want[request]; !ok {
 			continue
 		}
-		driver, _ := res["driver"].(string)
-		pool, _ := res["pool"].(string)
-		device, _ := res["device"].(string)
-		Expect(driver).NotTo(BeEmpty(), "allocation result for request %q missing driver", request)
-		Expect(pool).NotTo(BeEmpty(), "allocation result for request %q missing pool", request)
-		Expect(device).NotTo(BeEmpty(), "allocation result for request %q missing device", request)
+		Expect(res.Driver).NotTo(BeEmpty(), "allocation result for request %q missing driver", request)
+		Expect(res.Pool).NotTo(BeEmpty(), "allocation result for request %q missing pool", request)
+		Expect(res.Device).NotTo(BeEmpty(), "allocation result for request %q missing device", request)
 
-		root, err := c.pcieRootFromResourceSliceDevice(ctx, driver, pool, device)
-		Expect(err).NotTo(HaveOccurred(), "request %q allocated %s/%s/%s", request, driver, pool, device)
+		root, err := c.pcieRootFromResourceSliceDevice(ctx, res.Driver, res.Pool, res.Device)
+		Expect(err).NotTo(HaveOccurred(), "request %q allocated %s/%s/%s", request, res.Driver, res.Pool, res.Device)
 		rootsByRequest[request] = root
 	}
 
@@ -70,39 +64,25 @@ func (c *Clients) ExpectResourceClaimRequestsSharePCIeRoot(ctx context.Context, 
 	}
 }
 
+// pcieRootFromResourceSliceDevice looks up deviceattribute.StandardDeviceAttributePCIeRoot
+// for the device identified by driver, pool, and device name on a ResourceSlice.
 func (c *Clients) pcieRootFromResourceSliceDevice(ctx context.Context, driver, pool, deviceName string) (string, error) {
-	list, err := c.Dynamic.Resource(schemaGroupVersionResource("resourceslices")).List(ctx, metav1.ListOptions{})
+	list, err := c.Clientset.ResourceV1().ResourceSlices().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return "", err
 	}
-	for _, item := range list.Items {
-		sliceDriver, _, err := unstructured.NestedString(item.Object, "spec", "driver")
-		if err != nil || sliceDriver != driver {
+	attrKey := deviceattribute.StandardDeviceAttributePCIeRoot
+	for _, slice := range list.Items {
+		if slice.Spec.Driver != driver || slice.Spec.Pool.Name != pool {
 			continue
 		}
-		slicePool, _, err := unstructured.NestedString(item.Object, "spec", "pool", "name")
-		if err != nil || slicePool != pool {
-			continue
-		}
-		devices, ok, err := unstructured.NestedSlice(item.Object, "spec", "devices")
-		if err != nil || !ok {
-			continue
-		}
-		for _, raw := range devices {
-			device, ok := raw.(map[string]any)
+		for _, device := range slice.Spec.Devices {
+			if device.Name != deviceName {
+				continue
+			}
+			root, ok := deviceAttributeString(device.Attributes, attrKey)
 			if !ok {
-				continue
-			}
-			name, _ := device["name"].(string)
-			if name != deviceName {
-				continue
-			}
-			root, ok, err := unstructured.NestedString(device, "attributes", PCIeRootAttributeKey, "string")
-			if err != nil {
-				return "", err
-			}
-			if !ok || root == "" {
-				return "", fmt.Errorf("device %s/%s/%s has no %s attribute", driver, pool, deviceName, PCIeRootAttributeKey)
+				return "", fmt.Errorf("device %s/%s/%s has no %s attribute", driver, pool, deviceName, attrKey)
 			}
 			return root, nil
 		}
