@@ -32,7 +32,8 @@ make e2e-workloads
 
 CI runs this suite in a matrix for both `standalone` and `multus` driver modes
 (single-node and multi-node workflows). Each job deploys the SR-IOV driver and
-`gpu.example.com` example driver (`DEPLOY_FAKE_GPU_DRIVER=1`):
+`gpu.example.com` example driver (`DEPLOY_FAKE_GPU_DRIVER=1`, pinned
+[dra-example-driver](https://github.com/kubernetes-sigs/dra-example-driver) **v0.5.0** via `hack/install-dra-example-gpu-driver.sh`):
 
 - `.github/workflows/virtual-e2e-singlenode.yaml` — single-node cluster (`--single-node`)
 - `.github/workflows/virtual-e2e-multinode.yaml` — multi-node cluster (1 control plane + 2 workers)

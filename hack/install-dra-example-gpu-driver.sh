@@ -1,14 +1,25 @@
 #!/usr/bin/env bash
 # Install gpu.example.com (kubernetes-sigs/dra-example-driver) for resource-alignment demos.
 #
-# Source: DRA_EXAMPLE_DRIVER_REPO / DRA_EXAMPLE_DRIVER_REF (default upstream main).
+# Default: published image/chart v0.5.0 (registry.k8s.io), mirrored to the cluster registry.
+# Opt-in build: DRA_EXAMPLE_DRIVER_BUILD=1 uses DRA_EXAMPLE_DRIVER_REPO / DRA_EXAMPLE_DRIVER_REF.
 # Alignment env: GPU_PUBLISH_PCIE_ROOT (default true), PCIE_ROOTS (auto from SR-IOV slices).
 set -xeo pipefail
 
 source hack/common.sh
 
+DRA_EXAMPLE_DRIVER_BUILD="${DRA_EXAMPLE_DRIVER_BUILD:-0}"
+
+# default published image/chart v0.5.0 (registry.k8s.io), mirrored to the cluster registry. DRA_EXAMPLE_DRIVER_BUILD=0
+DRA_EXAMPLE_DRIVER_VERSION="${DRA_EXAMPLE_DRIVER_VERSION:-v0.5.0}"
+DRA_EXAMPLE_DRIVER_CHART_VERSION="${DRA_EXAMPLE_DRIVER_CHART_VERSION:-0.5.0}"
+DRA_EXAMPLE_DRIVER_UPSTREAM_IMAGE="${DRA_EXAMPLE_DRIVER_UPSTREAM_IMAGE:-registry.k8s.io/dra-example-driver/dra-example-driver}"
+DRA_EXAMPLE_DRIVER_CHART="${DRA_EXAMPLE_DRIVER_CHART:-oci://registry.k8s.io/dra-example-driver/charts/dra-example-driver}"
+
+# opt-in build: DRA_EXAMPLE_DRIVER_BUILD=1 uses DRA_EXAMPLE_DRIVER_REPO / DRA_EXAMPLE_DRIVER_REF.
 DRA_EXAMPLE_DRIVER_REPO="${DRA_EXAMPLE_DRIVER_REPO:-https://github.com/kubernetes-sigs/dra-example-driver.git}"
 DRA_EXAMPLE_DRIVER_REF="${DRA_EXAMPLE_DRIVER_REF:-main}"
+
 DRA_EXAMPLE_DRIVER_RELEASE="${DRA_EXAMPLE_DRIVER_RELEASE:-dra-example-driver}"
 DRA_EXAMPLE_DRIVER_NAMESPACE="${DRA_EXAMPLE_DRIVER_NAMESPACE:-dra-example-driver}"
 GPU_DRIVER_NAME="${GPU_DRIVER_NAME:-gpu.example.com}"
@@ -88,19 +99,34 @@ resolve_pcie_roots() {
   echo "## Discovered PCIE_ROOTS=${PCIE_ROOTS}"
 }
 
+# mirror_published_example_driver_image pulls the upstream release image into the cluster registry.
+mirror_published_example_driver_image() {
+  export EXAMPLE_DRIVER_IMAGE="${controller_ip}:5000/dra-example-driver"
+  EXAMPLE_DRIVER_IMAGE_TAG="${DRA_EXAMPLE_DRIVER_VERSION}"
+  local upstream="${DRA_EXAMPLE_DRIVER_UPSTREAM_IMAGE}:${DRA_EXAMPLE_DRIVER_VERSION}"
+  local internal="${EXAMPLE_DRIVER_IMAGE}:${EXAMPLE_DRIVER_IMAGE_TAG}"
+
+  echo "## Pulling published dra-example-driver ${upstream}"
+  podman pull "${upstream}"
+  podman tag "${upstream}" "${internal}"
+  podman push --tls-verify=false "${internal}"
+  podman rmi -fi "${upstream}" "${internal}" || true
+}
+
 # build_and_push_example_driver_image builds the example driver image and pushes it to the
 # cluster internal registry at controller_ip:5000.
 build_and_push_example_driver_image() {
   export EXAMPLE_DRIVER_IMAGE="${controller_ip}:5000/dra-example-driver"
+  EXAMPLE_DRIVER_IMAGE_TAG="latest"
 
-  echo "## Building dra-example-driver image ${EXAMPLE_DRIVER_IMAGE}:latest"
+  echo "## Building dra-example-driver image ${EXAMPLE_DRIVER_IMAGE}:${EXAMPLE_DRIVER_IMAGE_TAG}"
   CONTAINER_TOOL=podman IMAGE_NAME="${EXAMPLE_DRIVER_IMAGE}" \
     make -C "${cache_dir}" -f deployments/container/Makefile ubuntu22.04
-  podman push --tls-verify=false "${EXAMPLE_DRIVER_IMAGE}:latest"
-  podman rmi -fi "${EXAMPLE_DRIVER_IMAGE}:latest" || true
+  podman push --tls-verify=false "${EXAMPLE_DRIVER_IMAGE}:${EXAMPLE_DRIVER_IMAGE_TAG}"
+  podman rmi -fi "${EXAMPLE_DRIVER_IMAGE}:${EXAMPLE_DRIVER_IMAGE_TAG}" || true
 }
 
-# deploy_example_driver installs the local Helm chart with gpuPublishPCIeRoot and pcieRoots.
+# deploy_example_driver installs the Helm chart with gpuPublishPCIeRoot and pcieRoots.
 deploy_example_driver() {
   echo "## Installing dra-example-driver via Helm"
   export PATH="${root}/bin:${PATH}"
@@ -108,16 +134,26 @@ deploy_example_driver() {
     make -C "${root}" helm
   fi
   local pcie_roots_set="${PCIE_ROOTS//,/\\,}"
-  "${root}/bin/helm" upgrade -i "${DRA_EXAMPLE_DRIVER_RELEASE}" \
-    "${cache_dir}/deployments/helm/dra-example-driver" \
-    --namespace "${DRA_EXAMPLE_DRIVER_NAMESPACE}" \
-    --create-namespace \
-    --set "gpuPublishPCIeRoot=${GPU_PUBLISH_PCIE_ROOT}" \
-    --set "pcieRoots=${pcie_roots_set}" \
-    --set "image.repository=${EXAMPLE_DRIVER_IMAGE}" \
-    --set image.tag=latest \
-    --set image.pullPolicy=Always \
+  local -a helm_args=(
+    upgrade -i "${DRA_EXAMPLE_DRIVER_RELEASE}"
+    --namespace "${DRA_EXAMPLE_DRIVER_NAMESPACE}"
+    --create-namespace
+    --set "gpuPublishPCIeRoot=${GPU_PUBLISH_PCIE_ROOT}"
+    --set "pcieRoots=${pcie_roots_set}"
+    --set "image.repository=${EXAMPLE_DRIVER_IMAGE}"
+    --set "image.tag=${EXAMPLE_DRIVER_IMAGE_TAG}"
+    --set image.pullPolicy=IfNotPresent
     --set webhook.enabled=false
+  )
+  if [[ "${DRA_EXAMPLE_DRIVER_BUILD}" == "1" ]]; then
+    helm_args+=("${cache_dir}/deployments/helm/dra-example-driver")
+  else
+    helm_args+=(
+      "${DRA_EXAMPLE_DRIVER_CHART}"
+      --version "${DRA_EXAMPLE_DRIVER_CHART_VERSION}"
+    )
+  fi
+  "${root}/bin/helm" "${helm_args[@]}"
 }
 
 # wait_for_example_driver waits until the kubeletplugin DaemonSet is fully rolled out.
@@ -155,15 +191,25 @@ wait_for_gpu_pcie_root() {
 }
 
 check_install_requirements
-fetch_example_driver
 get_controller_ip
 resolve_pcie_roots
-build_and_push_example_driver_image
+if [[ "${DRA_EXAMPLE_DRIVER_BUILD}" == "1" ]]; then
+  fetch_example_driver
+  build_and_push_example_driver_image
+else
+  mirror_published_example_driver_image
+fi
 deploy_example_driver
 wait_for_example_driver
 wait_for_gpu_pcie_root
 
 echo "## DRA example driver for (fake) GPUs installed successfully"
-echo "## Image: ${EXAMPLE_DRIVER_IMAGE}:latest"
+echo "## Image: ${EXAMPLE_DRIVER_IMAGE}:${EXAMPLE_DRIVER_IMAGE_TAG}"
+if [[ "${DRA_EXAMPLE_DRIVER_BUILD}" == "1" ]]; then
+  echo "## Source: ${DRA_EXAMPLE_DRIVER_REPO}@${DRA_EXAMPLE_DRIVER_REF} (local build)"
+else
+  echo "## Upstream: ${DRA_EXAMPLE_DRIVER_UPSTREAM_IMAGE}:${DRA_EXAMPLE_DRIVER_VERSION}"
+  echo "## Chart: ${DRA_EXAMPLE_DRIVER_CHART} version ${DRA_EXAMPLE_DRIVER_CHART_VERSION}"
+fi
 echo "## Release: ${DRA_EXAMPLE_DRIVER_RELEASE} (${DRA_EXAMPLE_DRIVER_NAMESPACE})"
 echo "## GPU_PUBLISH_PCIE_ROOT=${GPU_PUBLISH_PCIE_ROOT} PCIE_ROOTS=${PCIE_ROOTS}"

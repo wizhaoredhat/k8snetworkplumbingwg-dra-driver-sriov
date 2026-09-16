@@ -31,11 +31,12 @@ Alignment needs a second DRA publisher that also exposes `resource.kubernetes.io
 on ResourceSlice devices. This repo installs
 [kubernetes-sigs/dra-example-driver](https://github.com/kubernetes-sigs/dra-example-driver)
 via [`hack/install-dra-example-gpu-driver.sh`](../../hack/install-dra-example-gpu-driver.sh)
-(pcieRoot support: [PR #268](https://github.com/kubernetes-sigs/dra-example-driver/pull/268)).
+(pinned release **v0.5.0** image and Helm chart from `registry.k8s.io`, mirrored into the cluster registry).
 
 - `DEPLOY_FAKE_GPU_DRIVER=1` sets `GPU_PUBLISH_PCIE_ROOT=true` and discovers
   `PCIE_ROOTS` from SR-IOV ResourceSlices.
 - Override roots manually if needed: `PCIE_ROOTS=pci0000:14,pci0000:28 make install-fake-gpu-driver`.
+- To build from upstream git instead (e.g. `main`): `DRA_EXAMPLE_DRIVER_BUILD=1 DRA_EXAMPLE_DRIVER_REF=main make install-fake-gpu-driver`.
 
 Fake GPUs assign `pcieRoot` in round-robin order from `PCIE_ROOTS`; values must
 overlap what the SR-IOV driver publishes so `matchAttribute` can succeed.
