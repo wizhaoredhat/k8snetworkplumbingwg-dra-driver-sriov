@@ -16,3 +16,14 @@ export DRA_DRIVER_MODE=${DRA_DRIVER_MODE:-STANDALONE}
 
 here="$(dirname "$(readlink --canonicalize "${BASH_SOURCE[0]}")")"
 root="$(readlink --canonicalize "$here/..")"
+
+# Resolve the control-plane InternalIP (internal registry host).
+get_controller_ip() {
+  controller_ip=$(kubectl get node "${cluster_name}-ctlplane-0.${domain_name}" \
+    -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
+  if [[ -z "$controller_ip" ]]; then
+    echo "## ERROR: Failed to get controller IP"
+    kubectl get nodes -o wide
+    exit 1
+  fi
+}

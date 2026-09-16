@@ -8,6 +8,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
 const (
@@ -20,6 +21,9 @@ const (
 
 	SriovCapableNodeLabelKey   = "feature.node.kubernetes.io/network-sriov.capable"
 	SriovCapableNodeLabelValue = "true"
+
+	AlignmentGPUDriverName = "gpu.example.com"
+	PCIeRootAttributeKey   = "resource.kubernetes.io/pcieRoot"
 )
 
 // SkipUnlessMultus skips when Multus is not installed or the driver is not in MULTUS mode.
@@ -44,10 +48,13 @@ func (c *Clients) SkipUnlessStandalone(ctx context.Context) {
 	}
 }
 
-// SkipUnlessAlignment skips unless explicitly enabled (needs gpu.example.com).
-func (c *Clients) SkipUnlessAlignment(_ context.Context) {
-	if os.Getenv("E2E_ENABLE_ALIGNMENT") != "1" {
-		skipTestf("alignment e2e disabled by default; set E2E_ENABLE_ALIGNMENT=1 to run (requires gpu.example.com)")
+// SkipUnlessAlignment skips when the cluster has no gpu.example.com ResourceSlice with
+// resource.kubernetes.io/pcieRoot. Call SkipUnlessStandalone or SkipUnlessMultus when the
+// fixture depends on driver mode.
+func (c *Clients) SkipUnlessAlignment(ctx context.Context) {
+	if !c.hasResourceSliceDeviceAttribute(ctx, AlignmentGPUDriverName, PCIeRootAttributeKey) {
+		skipTestf("no %s ResourceSlice device with %s (run make install-fake-gpu-driver or DEPLOY_FAKE_GPU_DRIVER=1)",
+			AlignmentGPUDriverName, PCIeRootAttributeKey)
 	}
 }
 
@@ -120,4 +127,32 @@ func (c *Clients) detectDriverMode(ctx context.Context) string {
 		}
 	}
 	return "STANDALONE"
+}
+
+func (c *Clients) hasResourceSliceDeviceAttribute(ctx context.Context, driver, attrKey string) bool {
+	list, err := c.Dynamic.Resource(schemaGroupVersionResource("resourceslices")).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return false
+	}
+	for _, item := range list.Items {
+		sliceDriver, _, err := unstructured.NestedString(item.Object, "spec", "driver")
+		if err != nil || sliceDriver != driver {
+			continue
+		}
+		devices, ok, err := unstructured.NestedSlice(item.Object, "spec", "devices")
+		if err != nil || !ok {
+			continue
+		}
+		for _, raw := range devices {
+			device, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			val, ok, err := unstructured.NestedString(device, "attributes", attrKey, "string")
+			if err == nil && ok && val != "" {
+				return true
+			}
+		}
+	}
+	return false
 }

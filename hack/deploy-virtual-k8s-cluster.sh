@@ -28,9 +28,13 @@ Deploy a kcli-based virtual Kubernetes cluster with SR-IOV VFs and the DRA drive
 
 Environment:
   NUM_OF_WORKERS     Worker count (default: 2; use 0 or --single-node for single-node).
-  DRA_DRIVER_MODE    STANDALONE (default) or MULTUS.
-  CLUSTER_NAME       Cluster name (default: dra).
-  CLUSTER_VERSION    Kubernetes version (default: 1.36.1).
+  DRA_DRIVER_MODE        STANDALONE (default) or MULTUS.
+  DEPLOY_FAKE_GPU_DRIVER Set to 1 to install gpu.example.com after SR-IOV deploy for alignment demos
+                         (exports GPU_PUBLISH_PCIE_ROOT=true unless already set in the environment).
+  GPU_PUBLISH_PCIE_ROOT  Helm gpuPublishPCIeRoot / plugin GPU_PUBLISH_PCIE_ROOT (true/false; default true).
+  PCIE_ROOTS             Comma-separated PCIe roots for fake GPUs (default: discover from SR-IOV ResourceSlices).
+  CLUSTER_NAME           Cluster name (default: dra).
+  CLUSTER_VERSION        Kubernetes version (default: 1.36.1).
 EOF
       exit 0
       ;;
@@ -55,7 +59,7 @@ fi
 sriov_network_name="${cluster_name}-sriov"
 
 check_requirements() {
-  local -a cmds=(kcli virsh podman make go)
+  local -a cmds=(kcli virsh podman make go kubectl)
   for cmd in "${cmds[@]}"; do
     if ! command -v "$cmd" &> /dev/null; then
       echo "$cmd is not available"
@@ -199,16 +203,6 @@ label_nodes() {
     kubectl label node "${cluster_name}-worker-${num}.${domain_name}" \
       node-role.kubernetes.io/worker= --overwrite
   done
-}
-
-get_controller_ip() {
-  controller_ip=$(kubectl get node "${cluster_name}-ctlplane-0.${domain_name}" \
-    -o jsonpath='{.status.addresses[?(@.type=="InternalIP")].address}')
-  if [[ -z "$controller_ip" ]]; then
-    echo "## ERROR: Failed to get controller IP"
-    kubectl get nodes -o wide
-    exit 1
-  fi
 }
 
 configure_host_registry() {
@@ -700,6 +694,13 @@ deploy_dra_driver
 wait_for_dra_driver_daemonset
 
 verify_vfs_and_restart_driver
+
+if [[ "${DEPLOY_FAKE_GPU_DRIVER:-}" == "1" ]]; then
+  echo "## Installing fake GPU driver (gpu.example.com)"
+  export GPU_PUBLISH_PCIE_ROOT="${GPU_PUBLISH_PCIE_ROOT:-true}"
+  "${root}/hack/install-dra-example-gpu-driver.sh"
+fi
+
 echo "## Cluster deployed successfully"
 
 echo "## KUBECONFIG=${KUBECONFIG}"
