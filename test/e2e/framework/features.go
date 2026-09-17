@@ -48,7 +48,9 @@ func (c *Clients) SkipUnlessStandalone(ctx context.Context) {
 // deviceattribute.StandardDeviceAttributePCIeRoot. Call SkipUnlessStandalone or SkipUnlessMultus when the
 // fixture depends on driver mode.
 func (c *Clients) SkipUnlessAlignment(ctx context.Context) {
-	if !c.hasResourceSliceDeviceAttribute(ctx, AlignmentGPUDriverName, deviceattribute.StandardDeviceAttributePCIeRoot) {
+	ok, err := c.hasResourceSliceDeviceAttribute(ctx, AlignmentGPUDriverName, deviceattribute.StandardDeviceAttributePCIeRoot)
+	Expect(err).NotTo(HaveOccurred())
+	if !ok {
 		skipTestf("no %s ResourceSlice device with %s (run make install-fake-gpu-driver or DEPLOY_FAKE_GPU_DRIVER=1)",
 			AlignmentGPUDriverName, deviceattribute.StandardDeviceAttributePCIeRoot)
 	}
@@ -127,10 +129,10 @@ func (c *Clients) detectDriverMode(ctx context.Context) string {
 
 // hasResourceSliceDeviceAttribute reports whether any device on a ResourceSlice for driver
 // has a non-empty string value for attrKey.
-func (c *Clients) hasResourceSliceDeviceAttribute(ctx context.Context, driver string, attrKey resourceapi.QualifiedName) bool {
+func (c *Clients) hasResourceSliceDeviceAttribute(ctx context.Context, driver string, attrKey resourceapi.QualifiedName) (bool, error) {
 	list, err := c.Clientset.ResourceV1().ResourceSlices().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return false
+		return false, err
 	}
 	for _, slice := range list.Items {
 		if slice.Spec.Driver != driver {
@@ -138,9 +140,9 @@ func (c *Clients) hasResourceSliceDeviceAttribute(ctx context.Context, driver st
 		}
 		for _, device := range slice.Spec.Devices {
 			if _, ok := deviceAttributeString(device.Attributes, attrKey); ok {
-				return true
+				return true, nil
 			}
 		}
 	}
-	return false
+	return false, nil
 }

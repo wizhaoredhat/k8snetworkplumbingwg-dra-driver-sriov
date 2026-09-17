@@ -37,7 +37,6 @@ func (c *Clients) ExpectResourceClaimRequestsSharePCIeRoot(ctx context.Context, 
 	results := allocation.Devices.Results
 	Expect(results).NotTo(BeEmpty(), "claim %s/%s has no allocation device results", namespace, claimName)
 
-	rootsByRequest := make(map[string]string, len(requestNames))
 	for _, res := range results {
 		request := res.Request
 		if _, ok := want[request]; !ok {
@@ -46,22 +45,33 @@ func (c *Clients) ExpectResourceClaimRequestsSharePCIeRoot(ctx context.Context, 
 		Expect(res.Driver).NotTo(BeEmpty(), "allocation result for request %q missing driver", request)
 		Expect(res.Pool).NotTo(BeEmpty(), "allocation result for request %q missing pool", request)
 		Expect(res.Device).NotTo(BeEmpty(), "allocation result for request %q missing device", request)
-
-		root, err := c.pcieRootFromResourceSliceDevice(ctx, res.Driver, res.Pool, res.Device)
-		Expect(err).NotTo(HaveOccurred(), "request %q allocated %s/%s/%s", request, res.Driver, res.Pool, res.Device)
-		rootsByRequest[request] = root
 	}
 
-	for _, request := range requestNames {
-		Expect(rootsByRequest).To(HaveKey(request), "no allocation result for request %q in claim %s", request, claimName)
-	}
+	// Retry: pool generation may advance after the claim is allocated; pcieRoot lookup
+	// only reads the highest generation, so slices can lag briefly during driver updates.
+	Eventually(func(g Gomega) {
+		rootsByRequest := make(map[string]string, len(requestNames))
+		for _, res := range results {
+			request := res.Request
+			if _, ok := want[request]; !ok {
+				continue
+			}
+			root, err := c.pcieRootFromResourceSliceDevice(ctx, res.Driver, res.Pool, res.Device)
+			g.Expect(err).NotTo(HaveOccurred(), "request %q allocated %s/%s/%s", request, res.Driver, res.Pool, res.Device)
+			rootsByRequest[request] = root
+		}
 
-	ref := rootsByRequest[requestNames[0]]
-	Expect(ref).NotTo(BeEmpty(), "pcieRoot empty for request %q", requestNames[0])
-	for _, request := range requestNames[1:] {
-		Expect(rootsByRequest[request]).To(Equal(ref),
-			"expected requests %q and %q to share pcieRoot %q", requestNames[0], request, ref)
-	}
+		for _, request := range requestNames {
+			g.Expect(rootsByRequest).To(HaveKey(request), "no allocation result for request %q in claim %s", request, claimName)
+		}
+
+		ref := rootsByRequest[requestNames[0]]
+		g.Expect(ref).NotTo(BeEmpty(), "pcieRoot empty for request %q", requestNames[0])
+		for _, request := range requestNames[1:] {
+			g.Expect(rootsByRequest[request]).To(Equal(ref),
+				"expected requests %q and %q to share pcieRoot %q", requestNames[0], request, ref)
+		}
+	}).WithTimeout(DefaultTimeout).WithPolling(DefaultInterval).Should(Succeed())
 }
 
 // pcieRootFromResourceSliceDevice looks up deviceattribute.StandardDeviceAttributePCIeRoot
@@ -71,9 +81,25 @@ func (c *Clients) pcieRootFromResourceSliceDevice(ctx context.Context, driver, p
 	if err != nil {
 		return "", err
 	}
+
+	// During pool updates, old and new ResourceSlices may coexist; use only the
+	// current generation for this driver/pool (highest Pool.Generation).
+	var generation int64
+	for _, slice := range list.Items {
+		if slice.Spec.Driver != driver || slice.Spec.Pool.Name != pool {
+			continue
+		}
+		if slice.Spec.Pool.Generation > generation {
+			generation = slice.Spec.Pool.Generation
+		}
+	}
+
 	attrKey := deviceattribute.StandardDeviceAttributePCIeRoot
 	for _, slice := range list.Items {
 		if slice.Spec.Driver != driver || slice.Spec.Pool.Name != pool {
+			continue
+		}
+		if slice.Spec.Pool.Generation != generation {
 			continue
 		}
 		for _, device := range slice.Spec.Devices {
