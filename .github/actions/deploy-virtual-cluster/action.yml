@@ -9,6 +9,10 @@ inputs:
     description: Deploy a single-node cluster when true
     required: false
     default: "false"
+  github-token:
+    description: GitHub token for kcli GitHub API calls (flannel version lookup)
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -23,4 +27,5 @@ runs:
         sudo -E env "PATH=$PATH" "HOME=/root" \
           "DRA_DRIVER_MODE=$(echo '${{ inputs.driver-mode }}' | tr '[:lower:]' '[:upper:]')" \
           "DEPLOY_FAKE_GPU_DRIVER=1" \
+          "GITHUB_TOKEN=${{ inputs.github-token }}" \
           bash hack/deploy-virtual-k8s-cluster.sh "${deploy_args[@]}"
