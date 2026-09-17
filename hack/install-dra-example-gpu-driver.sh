@@ -82,21 +82,51 @@ discover_pcie_roots_from_sriov() {
   printf '%s' "${joined}"
 }
 
+# apply_all_devices_policy installs the catch-all SriovResourcePolicy so the driver
+# advertises VFs on ResourceSlices (deploy does not apply a policy by default).
+apply_all_devices_policy() {
+  echo "## Applying catch-all SriovResourcePolicy (all-devices) in ${NAMESPACE}"
+  kubectl apply -f - <<EOF
+apiVersion: sriovnetwork.k8snetworkplumbingwg.io/v1alpha1
+kind: SriovResourcePolicy
+metadata:
+  name: all-devices
+  namespace: ${NAMESPACE}
+spec:
+  configs:
+  - {}
+EOF
+}
+
+# wait_for_sriov_pcie_roots polls until SR-IOV ResourceSlice devices publish pcieRoot.
+wait_for_sriov_pcie_roots() {
+  echo "## Waiting for ${SRIOV_DRIVER_NAME} ResourceSlice devices with ${PCIE_ROOT_ATTR}"
+  local attempts=0
+  local max_attempts=60
+  while [[ $attempts -lt $max_attempts ]]; do
+    if PCIE_ROOTS="$(discover_pcie_roots_from_sriov)"; then
+      export PCIE_ROOTS
+      echo "## Discovered PCIE_ROOTS=${PCIE_ROOTS}"
+      return 0
+    fi
+    sleep 5
+    attempts=$((attempts + 1))
+  done
+  echo "## ERROR: could not discover ${PCIE_ROOT_ATTR} on ${SRIOV_DRIVER_NAME} ResourceSlices"
+  echo "## Set PCIE_ROOTS explicitly (comma-separated) to match SR-IOV VF topology"
+  kubectl get resourceslices -o wide || true
+  kubectl -n "${NAMESPACE}" get sriovresourcepolicies -o wide || true
+  exit 1
+}
+
 # resolve_pcie_roots sets PCIE_ROOTS from the environment or discovers it from the cluster.
 resolve_pcie_roots() {
   if [[ -n "${PCIE_ROOTS:-}" ]]; then
     echo "## Using PCIE_ROOTS from environment: ${PCIE_ROOTS}"
     return 0
   fi
-  echo "## Discovering PCIE_ROOTS from ${SRIOV_DRIVER_NAME} ResourceSlices"
-  if ! PCIE_ROOTS="$(discover_pcie_roots_from_sriov)"; then
-    echo "## ERROR: could not discover ${PCIE_ROOT_ATTR} on ${SRIOV_DRIVER_NAME} ResourceSlices"
-    echo "## Set PCIE_ROOTS explicitly (comma-separated) to match SR-IOV VF topology"
-    kubectl get resourceslices -o wide || true
-    exit 1
-  fi
-  export PCIE_ROOTS
-  echo "## Discovered PCIE_ROOTS=${PCIE_ROOTS}"
+  apply_all_devices_policy
+  wait_for_sriov_pcie_roots
 }
 
 # mirror_published_example_driver_image pulls the upstream release image into the cluster registry.
