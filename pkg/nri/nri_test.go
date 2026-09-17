@@ -3,7 +3,9 @@ package nri
 import (
 	"context"
 	"errors"
-	"os"
+	"fmt"
+	"os/exec"
+	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -542,10 +544,14 @@ var _ = Describe("NRI updateNetworkDeviceData ordering", func() {
 				Client:    ctrlclientfake.NewClientBuilder().WithScheme(flags.Scheme).WithRuntimeObjects(claim.DeepCopy()).Build(),
 			},
 		}
-		// Simulate real persistence failure by removing write permissions before update.
-		Expect(os.Chmod(cfg.DriverPluginPath(), 0o500)).To(Succeed())
+		// Simulate persistence failure. Directory chmod is ineffective as root; make the
+		// checkpoint file immutable so UpdatePreparedDeviceNetworkData cannot sync.
+		checkpointPath := filepath.Join(cfg.DriverPluginPath(), consts.DriverPluginCheckpointFile)
+		if err := exec.Command("chattr", "+i", checkpointPath).Run(); err != nil {
+			Skip(fmt.Sprintf("chattr unavailable, cannot simulate checkpoint failure: %v", err))
+		}
 		DeferCleanup(func() {
-			_ = os.Chmod(cfg.DriverPluginPath(), 0o700)
+			_ = exec.Command("chattr", "-i", checkpointPath).Run()
 		})
 
 		networkDataList := types.NetworkDataChanStructList{
