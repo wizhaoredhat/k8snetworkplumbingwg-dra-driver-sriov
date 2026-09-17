@@ -40,6 +40,6 @@ var _ = Describe("demo/multiple-vf-claim", Label(framework.LabelStandalone), Ser
 
 		By("checking SR-IOV interfaces exists")
 		// multi-VF demo omits ifName; driver auto-names interfaces vfnet0, vfnet1
-		clients.ExpectPodLinkInterfaces(ctx, ns, podName, container, "lo", "eth0", "vfnet0", "vfnet1")
+		clients.ExpectPodLinkInterfacesExact(ctx, ns, podName, container, "lo", "eth0", "vfnet0", "vfnet1")
 	})
 })

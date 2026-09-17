@@ -53,6 +53,6 @@ var _ = Describe("demo/multus-integration-resource-alignment", Label(framework.L
 		clients.ExpectResourceClaimRequestsSharePCIeRoot(ctx, ns, claimName, vfDeviceRequest, gpuDeviceRequest)
 
 		By("checking secondary network interface from Multus")
-		clients.ExpectPodLinkInterfaces(ctx, ns, podName, container, "lo", "eth0", "net1")
+		clients.ExpectPodLinkInterfacesExact(ctx, ns, podName, container, "lo", "eth0", "net1")
 	})
 })

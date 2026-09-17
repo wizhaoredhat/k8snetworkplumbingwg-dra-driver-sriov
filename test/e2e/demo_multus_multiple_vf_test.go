@@ -48,6 +48,6 @@ var _ = Describe("demo/multus-integration-multiple-vf", Label(framework.LabelMul
 
 		By("checking secondary network interfaces exist")
 		// Multus annotation vf-test1,vf-test1 attaches as net1 and net2
-		clients.ExpectPodLinkInterfaces(ctx, ns, names[0], container, "lo", "eth0", "net1", "net2")
+		clients.ExpectPodLinkInterfacesExact(ctx, ns, names[0], container, "lo", "eth0", "net1", "net2")
 	})
 })

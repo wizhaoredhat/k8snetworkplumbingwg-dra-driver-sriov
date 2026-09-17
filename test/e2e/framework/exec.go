@@ -83,17 +83,47 @@ func podHasLinkInterface(ifnames []string, want string) bool {
 	return false
 }
 
-// ExpectPodLinkInterfaces runs ip -json link show in the pod and asserts each
-// listed interface exists. eth0 also matches veth peer names such as eth0@if5.
-func (c *Clients) ExpectPodLinkInterfaces(ctx context.Context, namespace, pod, container string, want ...string) {
+func normalizePodLinkIfName(name string) string {
+	if strings.HasPrefix(name, "eth0@") {
+		return "eth0"
+	}
+	return name
+}
+
+func normalizedPodLinkInterfaceNames(ifnames []string) []string {
+	normalized := make([]string, len(ifnames))
+	for i, name := range ifnames {
+		normalized[i] = normalizePodLinkIfName(name)
+	}
+	return normalized
+}
+
+func (c *Clients) expectPodLinkInterfaces(ctx context.Context, namespace, pod, container string, exact bool, want ...string) {
 	out, err := c.ExecInPod(ctx, namespace, pod, container, "ip", "-json", "link", "show")
 	Expect(err).NotTo(HaveOccurred(), "ip -json link show in %s/%s", namespace, pod)
 	ifnames, err := linkInterfaceNames(out)
 	Expect(err).NotTo(HaveOccurred(), "parse link list in %s/%s:\n%s", namespace, pod, out)
+	if exact {
+		Expect(normalizedPodLinkInterfaceNames(ifnames)).To(ConsistOf(want),
+			"pod link interfaces in %s/%s\n%s", namespace, pod, out)
+		return
+	}
 	for _, name := range want {
 		Expect(podHasLinkInterface(ifnames, name)).To(BeTrue(),
 			"expected interface %q in %v\n%s", name, ifnames, out)
 	}
+}
+
+// ExpectPodLinkInterfaces runs ip -json link show in the pod and asserts each
+// listed interface exists. eth0 also matches veth peer names such as eth0@if5.
+func (c *Clients) ExpectPodLinkInterfaces(ctx context.Context, namespace, pod, container string, want ...string) {
+	c.expectPodLinkInterfaces(ctx, namespace, pod, container, false, want...)
+}
+
+// ExpectPodLinkInterfacesExact is like ExpectPodLinkInterfaces but also rejects
+// any interface not listed in want. eth0 still matches veth peer names such as eth0@if5.
+func (c *Clients) ExpectPodLinkInterfacesExact(ctx context.Context, namespace, pod, container string, want ...string) {
+	c.expectPodLinkInterfaces(ctx, namespace, pod, container, true, want...)
 }
 
 // ExpectInterfaceHasAddress asserts ifName exists in the pod and has an IP address.
