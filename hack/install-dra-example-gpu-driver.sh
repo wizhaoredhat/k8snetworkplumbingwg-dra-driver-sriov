@@ -27,6 +27,9 @@ SRIOV_DRIVER_NAME="${SRIOV_DRIVER_NAME:-sriovnetwork.k8snetworkplumbingwg.io}"
 PCIE_ROOT_ATTR="${PCIE_ROOT_ATTR:-resource.kubernetes.io/pcieRoot}"
 GPU_PUBLISH_PCIE_ROOT="${GPU_PUBLISH_PCIE_ROOT:-true}"
 
+# Set to 1 when resolve_pcie_roots applies the catch-all policy for pcieRoot discovery.
+BOOTSTRAP_ALL_DEVICES_APPLIED="${BOOTSTRAP_ALL_DEVICES_APPLIED:-0}"
+
 export GPU_DRIVER_NAME SRIOV_DRIVER_NAME PCIE_ROOT_ATTR
 
 cache_dir="${root}/.cache/dra-example-driver"
@@ -96,6 +99,20 @@ spec:
   configs:
   - {}
 EOF
+  BOOTSTRAP_ALL_DEVICES_APPLIED=1
+}
+
+# remove_bootstrap_all_devices_policy deletes the catch-all policy used only to discover
+# pcieRoot values. Multus e2e demos install their own SriovResourcePolicy; leaving
+# all-devices in place causes the first Multus test to allocate VFs without
+# k8s.cni.cncf.io/resourceName and pods never become Ready.
+remove_bootstrap_all_devices_policy() {
+  if [[ "${BOOTSTRAP_ALL_DEVICES_APPLIED}" != "1" ]]; then
+    return 0
+  fi
+  echo "## Removing bootstrap all-devices SriovResourcePolicy from ${NAMESPACE}"
+  kubectl -n "${NAMESPACE}" delete sriovresourcepolicy all-devices --ignore-not-found
+  BOOTSTRAP_ALL_DEVICES_APPLIED=0
 }
 
 # wait_for_sriov_pcie_roots polls until SR-IOV ResourceSlice devices publish pcieRoot.
@@ -232,6 +249,7 @@ fi
 deploy_example_driver
 wait_for_example_driver
 wait_for_gpu_pcie_root
+remove_bootstrap_all_devices_policy
 
 echo "## DRA example driver for (fake) GPUs installed successfully"
 echo "## Image: ${EXAMPLE_DRIVER_IMAGE}:${EXAMPLE_DRIVER_IMAGE_TAG}"
