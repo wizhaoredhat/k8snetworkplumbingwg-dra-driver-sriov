@@ -3,9 +3,6 @@ package nri
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os/exec"
-	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -19,6 +16,7 @@ import (
 	k8sfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
 	drapbv1 "k8s.io/kubelet/pkg/apis/dra/v1beta1"
+	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
 	ctrlclientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	cnimock "github.com/k8snetworkplumbingwg/dra-driver-sriov/pkg/cni/mock"
@@ -33,6 +31,33 @@ type fakeMetadataUpdater struct {
 	requestName string
 	devices     []kubeletplugin.Device
 	err         error
+}
+
+// togglableCheckpointManager simulates checkpoint persistence failures in unit tests.
+// Making checkpoint.json immutable (chattr +i) is unreliable in CI: runners often lack
+// CAP_LINUX_IMMUTABLE. Injecting CreateCheckpoint errors is deterministic.
+type togglableCheckpointManager struct {
+	delegate   checkpointmanager.CheckpointManager
+	failCreate bool
+}
+
+func (t *togglableCheckpointManager) CreateCheckpoint(checkpointKey string, checkpoint checkpointmanager.Checkpoint) error {
+	if t.failCreate {
+		return errors.New("simulated checkpoint sync failure")
+	}
+	return t.delegate.CreateCheckpoint(checkpointKey, checkpoint)
+}
+
+func (t *togglableCheckpointManager) GetCheckpoint(checkpointKey string, checkpoint checkpointmanager.Checkpoint) error {
+	return t.delegate.GetCheckpoint(checkpointKey, checkpoint)
+}
+
+func (t *togglableCheckpointManager) RemoveCheckpoint(checkpointKey string) error {
+	return t.delegate.RemoveCheckpoint(checkpointKey)
+}
+
+func (t *togglableCheckpointManager) ListCheckpoints() ([]string, error) {
+	return t.delegate.ListCheckpoints()
 }
 
 func (f *fakeMetadataUpdater) UpdateRequestMetadata(
@@ -498,7 +523,10 @@ var _ = Describe("NRI updateNetworkDeviceData ordering", func() {
 				KubeletPluginsDirectoryPath: GinkgoT().TempDir(),
 			},
 		}
-		pm, err := podmanager.NewPodManager(cfg)
+		realCM, err := checkpointmanager.NewCheckpointManager(cfg.DriverPluginPath())
+		Expect(err).NotTo(HaveOccurred())
+		cm := &togglableCheckpointManager{delegate: realCM}
+		pm, err := podmanager.NewPodManagerWithCheckpointManager(cm)
 		Expect(err).NotTo(HaveOccurred())
 
 		claimUID := k8stypes.UID("claim-a-uid")
@@ -544,15 +572,9 @@ var _ = Describe("NRI updateNetworkDeviceData ordering", func() {
 				Client:    ctrlclientfake.NewClientBuilder().WithScheme(flags.Scheme).WithRuntimeObjects(claim.DeepCopy()).Build(),
 			},
 		}
-		// Simulate persistence failure. Directory chmod is ineffective as root; make the
-		// checkpoint file immutable so UpdatePreparedDeviceNetworkData cannot sync.
-		checkpointPath := filepath.Join(cfg.DriverPluginPath(), consts.DriverPluginCheckpointFile)
-		if err := exec.Command("chattr", "+i", checkpointPath).Run(); err != nil {
-			Skip(fmt.Sprintf("chattr unavailable, cannot simulate checkpoint failure: %v", err))
-		}
-		DeferCleanup(func() {
-			_ = exec.Command("chattr", "-i", checkpointPath).Run()
-		})
+
+		// Simulate checkpoint sync failure only when updateNetworkDeviceData persists network data, after setup syncs succeeded.
+		cm.failCreate = true
 
 		networkDataList := types.NetworkDataChanStructList{
 			{

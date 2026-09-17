@@ -110,13 +110,20 @@ var _ = Describe("PodManager", func() {
 		})
 
 		It("should handle invalid checkpoint directory", func() {
+			// Use a regular file path: checkpoint manager requires a directory and must
+			// fail even when tests run as root (which can mkdir missing paths).
+			notADir, err := os.CreateTemp("", "podmanager-notadir-*")
+			Expect(err).NotTo(HaveOccurred())
+			defer os.Remove(notADir.Name())
+			Expect(notADir.Close()).To(Succeed())
+
 			invalidConfig := &draTypes.Config{
 				Flags: &draTypes.Flags{
-					KubeletPluginsDirectoryPath: "/invalid/path/that/does/not/exist",
+					KubeletPluginsDirectoryPath: notADir.Name(),
 				},
 			}
 
-			_, err := podmanager.NewPodManager(invalidConfig)
+			_, err = podmanager.NewPodManager(invalidConfig)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("unable to create checkpoint manager"))
 		})
